@@ -19,3 +19,5 @@ wmic product where "IdentifyingNumber='{D401961D-3A20-3AC7-943B-6139D5BD490A}'" 
 wmic product where "IdentifyingNumber='{2BC3BD4D-FABA-4394-93C7-9AC82A263FE2}'" call uninstall /nointeractive
 wmic product where "IdentifyingNumber='{BD95A8CD-1D9F-35AD-981A-3E7925026EBB}'" call uninstall /nointeractive
 wmic product where "IdentifyingNumber='{B0A5A6EE-F8BA-48B1-BB32-BAC17E96C2B4}'" call uninstall /nointeractive
+
+echo Fertig.
