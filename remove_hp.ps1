@@ -80,7 +80,7 @@ $uninstallRoots = @(
 foreach ($root in $uninstallRoots) {
     Get-ChildItem $root | ForEach-Object {
         $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
-        if ($p.DisplayName -match '(?i)HP|Wolf|Bromium|Security Update') {
+        if ($p.DisplayName -match '(?i)HP|Wolf|Bromium') {
             Write-Host "→ Deinstalliere: $($p.DisplayName)" -ForegroundColor Yellow
             $cmd = $p.UninstallString
             $success = $false
