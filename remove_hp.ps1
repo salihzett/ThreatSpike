@@ -2,7 +2,7 @@
 $LogFile = "$env:TEMP\remove_hp.log"
 "Starte Deinstallation von HP Software - Log: $LogFile" | Out-File $LogFile
 
-# Liste aller installierten Programme
+# Alle installierten Programme durchsuchen
 $Programs = Get-WmiObject Win32_Product | Where-Object { $_.Name -match '(?i)HP|Wolf|Bromium|HP Security Update' }
 
 if ($Programs.Count -eq 0) {
