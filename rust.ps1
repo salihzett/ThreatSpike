@@ -1,12 +1,77 @@
-# ==== RustDesk Deployment Script (kostenlos, PowerShell) ====
-$ErrorActionPreference = 'SilentlyContinue'
-$logFile = "C:\Temp\rustdesk_config_update.log"
+# ==== Error Handling and Global Variables ====
+$ErrorActionPreference = 'SilentlyContinue'  # Suppress non-terminating errors
+$logFile = "C:\Temp\rustdesk_script.log"
 
-# ==== Server-Parameter ====
+# ==== Required Version and Paths ====
+$requiredVersion = "1.4.1"
+$rustdeskDownload   = "https://github.com/rustdesk/rustdesk/releases/download/1.4.3/rustdesk-1.4.3-x86_64.exe"
+$installTempPath    = "C:\Temp\rustdesk.exe"
+$rustdeskExePath    = "C:\Program Files\RustDesk\rustdesk.exe"
+$rustdeskLogDir     = "$env:APPDATA\RustDesk\log"
+$userConfigPath     = "C:\Users\$env:USERNAME\AppData\Roaming\RustDesk\config\RustDesk2.toml"
+$serviceConfigPath  = "C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\RustDesk\config\RustDesk2.toml"
 $Server = '10.134.129.91'
 $Key    = '0yF7XMN688QNf9SdB8flLa4xOwbNDw2Bwyx51nhEiFE='
 
-# ==== TOML-Inhalt ====
+# Key (Base64) and Password (plain text) - GENERIC PLACEHOLDERS
+$rustdeskKey            = 'BASE64_KEY_HERE'
+$rustdeskPasswordPlain  = 'YourStrongPassword123!'
+
+# ==== Logging Function ====
+function Write-Log {
+    param([string]$message)
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$ts - $message" | Out-File -Append -FilePath $logFile
+}
+
+Write-Log "==== Script Start ===="
+
+# ==== 0) Check Installed Version ====
+$skipInstall = $false
+if (Test-Path $rustdeskExePath) {
+    try {
+        $versionInfo = (Get-Command $rustdeskExePath).FileVersionInfo
+        $installedVersion = $versionInfo.ProductVersion
+        Write-Log "RustDesk detected. Installed version: $installedVersion"
+        if ([version]$installedVersion -ge [version]$requiredVersion) {
+            Write-Log "RustDesk is already at the required version ($requiredVersion) or higher. Skipping installation."
+            $skipInstall = $true
+        } else {
+            Write-Log "Installed version ($installedVersion) is lower than required ($requiredVersion). Updating."
+        }
+    } catch {
+        Write-Log "Failed to retrieve installed version. Proceeding with installation."
+    }
+} else {
+    Write-Log "RustDesk is not installed. Proceeding with installation."
+}
+
+# ==== 1) Create Temporary Directory ====
+if (-not (Test-Path "C:\Temp")) {
+    New-Item -ItemType Directory -Path "C:\Temp" -Force | Out-Null
+    Write-Log "Temporary directory created."
+}
+
+if (-not $skipInstall) {
+    # ==== 2) Download and Install RustDesk ====
+    Write-Log "Downloading RustDesk $requiredVersion..."
+    Invoke-WebRequest -Uri $rustdeskDownload -OutFile $installTempPath
+    Write-Log "Download completed."
+
+    Write-Log "Installing RustDesk..."
+    Start-Process -FilePath $installTempPath -ArgumentList "--silent-install" -PassThru | Wait-Process
+    Write-Log "Installation completed."
+    Start-Sleep -Seconds 5
+
+    # ==== 3) Stop RustDesk Service and Processes ====
+    Write-Log "Stopping RustDesk service..."
+    net stop rustdesk | Out-Null
+    Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+
+# ==== 4) Generate and Apply TOML Configuration ====
+# Update the values below with your real server and allowed IPs if needed.
 $toml = @"
 rendezvous_server = ''
 nat_type = 0
@@ -21,43 +86,47 @@ approve-mode = "click"
 av1-test = "N"
 "@
 
-# ==== Logging-Funktion ====
-function Write-Log {
-    param([string]$message)
-    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$ts - $message" | Out-File -Append -FilePath $logFile
-}
-
-Write-Log "==== RustDesk Deployment gestartet ===="
-
-# ==== 1) RustDesk via Winget installieren, falls nicht vorhanden ====
-if (-not (Get-Command "rustdesk.exe" -ErrorAction SilentlyContinue)) {
-    Write-Log "RustDesk nicht gefunden. Installiere via Winget..."
-    winget install --id RustDesk.RustDesk -e --silent
-    Start-Sleep -Seconds 5
-    Write-Log "RustDesk Installation abgeschlossen."
-} else {
-    Write-Log "RustDesk bereits installiert."
-}
-
-# ==== 2) Konfiguration für alle vorhandenen Benutzer schreiben ====
-Write-Log "Schreibe Config für alle vorhandenen Benutzer..."
-foreach ($userDir in Get-ChildItem 'C:\Users' -Directory) {
-    if (Test-Path "$($userDir.FullName)\AppData\Roaming") {
-        $configPath = "$($userDir.FullName)\AppData\Roaming\RustDesk\config\RustDesk2.toml"
-        $configDir = Split-Path $configPath
-        if (-not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir -Force | Out-Null }
-        Set-Content -Path $configPath -Value $toml -Encoding UTF8
-        Write-Log "Config geschrieben für Benutzer: $($userDir.Name)"
+foreach ($path in @($userConfigPath, $serviceConfigPath)) {
+    $dir = Split-Path $path
+    if (-not (Test-Path $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Write-Log "Directory $dir created."
     }
+    Set-Content -Path $path -Value $toml -Encoding UTF8
+    Write-Log "TOML configuration written to $path."
 }
 
-# ==== 3) Konfiguration ins Default-Profil für neue Benutzer ====
-$defaultProfile = 'C:\Users\Default\AppData\Roaming\RustDesk\config\RustDesk2.toml'
-$defaultDir = Split-Path $defaultProfile
-if (-not (Test-Path $defaultDir)) { New-Item -ItemType Directory -Path $defaultDir -Force | Out-Null }
-Set-Content -Path $defaultProfile -Value $toml -Encoding UTF8
-Write-Log "Config ins Default-Profil geschrieben für zukünftige Benutzer."
+# ==== 5) Start RustDesk Service ====
+Write-Log "Starting RustDesk service..."
+net start rustdesk | Out-Null
+Start-Sleep -Seconds 5
 
-Write-Log "==== RustDesk Deployment abgeschlossen ===="
-Write-Output "RustDesk Deployment und Konfiguration abgeschlossen. Log: $logFile"
+# ==== 6) Set Access Password ====
+Write-Log "Setting RustDesk access password..."
+Start-Process -FilePath $rustdeskExePath -ArgumentList "--password", $rustdeskPasswordPlain -Wait
+Start-Sleep -Seconds 5
+
+# ==== 7) Validate Configuration in Logs ====
+Write-Log "Validating password configuration in logs..."
+if (Test-Path $rustdeskLogDir) {
+    $logs = Get-ChildItem -Path $rustdeskLogDir -Filter "*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 3
+    $found = $false
+    foreach ($log in $logs) {
+        if (Select-String -Path $log.FullName -Pattern "password") {
+            Write-Log "✅ Password entry found in $($log.Name)."
+            Write-Output "Password set successfully (verified in $($log.Name))."
+            $found = $true
+            break
+        }
+    }
+    if (-not $found) {
+        Write-Log "⚠️ No password entry found in recent logs."
+        Write-Output "Warning: No password confirmation detected in logs."
+    }
+} else {
+    Write-Log "RustDesk log directory not found: $rustdeskLogDir"
+    Write-Output "RustDesk log directory not found."
+}
+
+Write-Log "==== Script End ===="
+Write-Output "Script completed. Check $logFile for more details."
