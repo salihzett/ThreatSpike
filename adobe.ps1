@@ -1,28 +1,31 @@
 # ===============================================
-# Adobe RUM Auto-Updater Script (Optimized)
+# Adobe RUM Auto-Updater Script (Final Version)
 # ===============================================
 
-$SourceZip = "\\Kiber2dc01.adlon.hotel\NETLOGON\KIBER2\AdobeUninstaller.zip"
-$TempFolder = "$env:TEMP\AdobeRUM"
-$ZipFile = "$TempFolder\RUM.zip"
+# Pfad zur RemoteUpdateManager.zip
+$SourceZip = "\\Kiber2dc01.adlon.hotel\NETLOGON\KIBER2\RemoteUpdateManager.zip"
 
-# Log directory
+# Temp Ordner für Entpackung
+$TempFolder = "$env:TEMP\AdobeRUM"
+$ZipFile = "$TempFolder\RemoteUpdateManager.zip"
+
+# Log-Ordner
 $LogFolder = "$env:TEMP\Adobe_RUM_Update_Logs"
 if (-Not (Test-Path $LogFolder)) {
     New-Item -ItemType Directory -Path $LogFolder | Out-Null
 }
-
 $LogFile = Join-Path $LogFolder ("RUM_Update_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".txt")
 
+# Funktion für Log mit Konsole-Ausgabe
 function Write-Log {
     param([string]$msg)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$timestamp - $msg" | Out-File $LogFile -Encoding UTF8 -Append
+    "$timestamp - $msg" | Tee-Object -FilePath $LogFile -Append
 }
 
 Write-Log "=== Starting Adobe RUM update ==="
 
-# Validate source ZIP exists
+# Prüfen ob ZIP existiert
 if (-not (Test-Path $SourceZip)) {
     Write-Log "ERROR: Source ZIP not found: $SourceZip"
     exit 1
@@ -30,13 +33,13 @@ if (-not (Test-Path $SourceZip)) {
 
 Write-Log "Source ZIP found: $SourceZip"
 
-# Clean previous temp folder
+# Temp Ordner aufräumen
 if (Test-Path $TempFolder) {
     Remove-Item $TempFolder -Recurse -Force -ErrorAction SilentlyContinue
 }
 New-Item -ItemType Directory -Path $TempFolder | Out-Null
 
-# Copy ZIP to temp
+# ZIP kopieren
 try {
     Copy-Item $SourceZip $ZipFile -Force
     Write-Log "ZIP copied to $ZipFile"
@@ -45,7 +48,7 @@ try {
     exit 1
 }
 
-# Extract ZIP
+# ZIP entpacken
 try {
     if (Get-Command Expand-Archive -ErrorAction SilentlyContinue) {
         Expand-Archive -Path $ZipFile -DestinationPath $TempFolder -Force
@@ -60,7 +63,7 @@ try {
     exit 1
 }
 
-# Locate RemoteUpdateManager.exe
+# RemoteUpdateManager.exe finden
 $RUM = Get-ChildItem -Path $TempFolder -Filter "RemoteUpdateManager.exe" -Recurse | Select-Object -First 1
 
 if (-not $RUM) {
@@ -70,7 +73,7 @@ if (-not $RUM) {
 
 Write-Log "Found RUM at: $($RUM.FullName)"
 
-# Run RUM
+# RUM ausführen (silent)
 try {
     Write-Log "Starting Adobe RUM (silent)..."
     $process = Start-Process -FilePath $RUM.FullName -ArgumentList "--silent" -Wait -PassThru
@@ -82,7 +85,7 @@ try {
 
 Write-Log "Adobe RUM update finished."
 
-# Cleanup optional
+# Optional Temp aufräumen
 try {
     Remove-Item $TempFolder -Recurse -Force -ErrorAction SilentlyContinue
     Write-Log "Temp folder cleaned."
