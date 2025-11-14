@@ -85,13 +85,5 @@ try {
 
 Write-Log "Adobe RUM update finished."
 
-# Optional Temp aufräumen
-try {
-    Remove-Item $TempFolder -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Log "Temp folder cleaned."
-} catch {
-    Write-Log "WARNING: Failed to clean Temp folder."
-}
-
 Write-Log "=== Script completed ==="
 exit 0
