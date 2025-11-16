@@ -1,9 +1,10 @@
-# Silent Office 2016 Removal Script (no reboot, no user interaction)
+# Silent Office 2016 Removal Script (PowerShell 5.1 compatible, no reboot, no user interaction)
 
 $tool = "$env:TEMP\SetupProd_OffScrub.exe"
 
-# 1. Download Microsoft OffScrub Tool
-Invoke-WebRequest -Uri "https://aka.ms/SaRA-OfficeUninstallFromPC" -OutFile $tool -UseBasicParsing
+# 1. Direct download using WebClient for PowerShell 5.1 compatibility
+$webclient = New-Object System.Net.WebClient
+$webclient.DownloadFile("https://aka.ms/SaRA-OfficeUninstallFromPC", $tool)
 
 # 2. Silent uninstall of Office 2016 (O16)
 Start-Process -FilePath $tool -ArgumentList "/quiet /product O16" -Wait
@@ -40,4 +41,4 @@ foreach ($key in $regKeys) {
 }
 
 # 6. Finished (no reboot required)
-Write-Host "Office 2016 wurde vollständig entfernt (silent, no reboot)."
+Write-Host "Office 2016 wurde vollständig entfernt (silent, no reboot, PowerShell 5.1 kompatibel)."
