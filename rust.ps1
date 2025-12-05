@@ -61,7 +61,7 @@ if (-not $skipInstall) {
     Write-Log "Installing RustDesk..."
     Start-Process -FilePath $installTempPath -ArgumentList "--silent-install" -PassThru | Wait-Process
     Write-Log "Installation completed."
-    Start-Sleep -Seconds 
+    Start-Sleep -Seconds 2
 
     # ==== Remove Shortcut ====
     $desktopShortcut = "$env:Public\Desktop\RustDesk.lnk"
