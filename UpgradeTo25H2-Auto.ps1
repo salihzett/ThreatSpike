@@ -47,5 +47,5 @@ if (-not $downloaded) {
 Write-Host "🚀 Start Installation..."
 Start-Process "wusa.exe" -ArgumentList "`"$out`" /quiet /norestart" -Wait
 
-#Write-Host "`n✅ Installation abgeschlossen — Neustart notwendig."
+#Write-Host "`n✅ Installation done — Restart required."
 #Restart-Computer -Force
