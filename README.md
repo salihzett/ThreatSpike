@@ -7,6 +7,7 @@ Threatspike provides an option to use Remote Terminal on SYSTEM level. This chea
 | `powershell -Command "Get-MpComputerStatus \| Select-Object AntivirusSignatureLastUpdated"` | Check last Defender Signature version |
 | `powershell Update-MpSignature` | Update Defender Signature |
 | `%ProgramFiles%\Windows Defender\MpCmdRun.exe" -SignatureUpdate` | Update Defender Signature (Alternative) |
+| `powershell -Command "Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\' \| Select-Object DisplayVersion, CurrentBuild, ReleaseId" ` | Check Windows OS Version|
 | `reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" /s /f "Firefox"` | Check Firefox 64bit version |
 | `reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" /s /f "Firefox"` | Check Firefox 32bit version |
 | `"C:\Program Files\Mozilla Firefox\uninstall\helper.exe" /S"` | Uninstall Firefox |
