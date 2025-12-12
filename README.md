@@ -35,7 +35,7 @@ Threatspike provides an option to use Remote Terminal on SYSTEM level. This chea
 | `shutdown /s /t 0` | Shutdown |
 | `shutdown /r /t 0` | Restart |
 | `shutdown /s /t 60` | Shutdown in 60 secs |
-| `shutdown /s /t 60 /c "Device will restart in our hour"` | Shutdown with message |
+| `shutdown /e /t 60 /c "Device will restart in our hour"` | Restart with message |
 
 
 not tested
@@ -84,7 +84,7 @@ type "C:\Temp\rustdesk_config_update.log"
 2025-11-13 09:53:54 - Config ins Default-Profil geschrieben fÃ¼r zukÃ¼nftige Benutzer.
 2025-11-13 09:53:54 - ==== RustDesk Deployment abgeschlossen ====
 #Check config:
-type "C:\Users\episcopus\AppData\Roaming\RustDesk\config\RustDesk2.toml"
+type "C:\Users\username\AppData\Roaming\RustDesk\config\RustDesk2.toml"
 ```
 
 Download CLCL & Set Shortcut
