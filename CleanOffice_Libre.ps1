@@ -1,38 +1,35 @@
 <#
 .SYNOPSIS
-    FINAL COMPLETE SCRIPT
-    1. Prozesse & Dienste (Hard Kill)
-    2. Scheduled Tasks (Updater entfernen)
-    3. WMI / Installer DB (Fix für 'wmic' Anzeige)
-    4. Uninstall Registry (Verstecken vor Asset-Tools)
-    5. Filesystem (Dateien & MSOCache löschen)
-    6. Spuren (Firewall, Prefetch, MSI)
-    7. Startmenü & Shortcuts
-    8. LibreOffice Verknüpfung
+    FINAL ULTIMATE CLEANER (NO WMIC DEPENDENCY)
+    Dieses Skript entfernt Office ProPlus/2016 vollständig.
+    Es repariert die Registry-Datenbank, damit Inventarisierungs-Tools nichts mehr finden.
+    Es setzt LibreOffice als Standard.
 #>
 
-# Admin Check
+# 0. ADMINISTRATOR CHECK
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "BITTE ALS ADMINISTRATOR AUSFÜHREN!"
-    Start-Sleep -s 5; Exit
+    Write-Warning "ACHTUNG: Bitte Rechtsklick -> 'Mit PowerShell als Administrator ausführen'!"
+    Start-Sleep -s 5
+    Exit
 }
 
 $ErrorActionPreference = "SilentlyContinue"
 Clear-Host
 Write-Host "================================================================" -ForegroundColor Cyan
-Write-Host "   OFFICE TOTAL-ENTFERNUNG (FINAL & CLEAN)" -ForegroundColor Cyan
+Write-Host "   OFFICE TOTAL-ENTFERNUNG (FINAL VERSION)" -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
 
 # ==========================================
 # 1. PROZESSE & DIENSTE (HARD KILL)
 # ==========================================
-Write-Host "`n[1/8] Beende Prozesse & Dienste..." -ForegroundColor Yellow
+Write-Host "`n[1/9] Beende Prozesse & Dienste..." -ForegroundColor Yellow
 
-$services = @("ClickToRunSvc", "OfficeSvc", "ose", "osppsvc", "dcsvc", "wuauserv") 
+$services = @("ClickToRunSvc", "OfficeSvc", "ose", "osppsvc", "dcsvc") 
 foreach ($svc in $services) {
     if (Get-Service $svc) {
         Stop-Service $svc -Force
-        if ($svc -ne "wuauserv") { & sc.exe delete $svc | Out-Null } # Dienst löschen
+        & sc.exe delete $svc | Out-Null # Dienst aus Windows entfernen
+        Write-Host "  -> Dienst gelöscht: $svc" -ForegroundColor DarkGray
     }
 }
 
@@ -42,15 +39,35 @@ foreach ($p in $procs) { Get-Process -Name $p | Stop-Process -Force }
 # ==========================================
 # 2. SCHEDULED TASKS (UPDATER KILLEN)
 # ==========================================
-Write-Host "[2/8] Lösche geplante Office-Aufgaben (Updater)..." -ForegroundColor Yellow
+Write-Host "[2/9] Lösche geplante Office-Aufgaben (Updater)..." -ForegroundColor Yellow
 Get-ScheduledTask | Where-Object { $_.TaskName -match "Office" -or $_.TaskPath -match "Office" } | Unregister-ScheduledTask -Confirm:$false
 
 # ==========================================
-# 3. WMI / INSTALLER DB (FIX FÜR DEINEN SCREENSHOT)
+# 3. WMI / INSTALLER DATENBANK BEREINIGEN
 # ==========================================
-Write-Host "[3/8] Bereinige WMI Datenbank (Fix für 'wmic product get')..." -ForegroundColor Yellow
+Write-Host "[3/9] Bereinige interne Installations-Datenbank..." -ForegroundColor Yellow
 
-# A) Generische Suche in der Installer DB
+# A) Spezifische GUIDs aus Ihren Screenshots (Das ist der wichtigste Teil!)
+$targetGUIDs = @(
+    "{90160000-0090-0407-0000-0000000FF1CE}", # DCF MUI
+    "{90160000-0011-0000-0000-0000000FF1CE}"  # Pro Plus 2016
+)
+
+foreach ($guid in $targetGUIDs) {
+    # Wir suchen an den Stellen, wo WMI/CIM nachschaut
+    $paths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$guid",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$guid"
+    )
+    foreach ($p in $paths) {
+        if (Test-Path $p) {
+            Write-Host "  -> TARGET GUID GEFUNDEN & GELÖSCHT: $guid" -ForegroundColor Red
+            Remove-Item $p -Recurse -Force
+        }
+    }
+}
+
+# B) Generische Suche nach Resten in der Installer-DB
 $installerHives = @(
     "HKLM:\SOFTWARE\Classes\Installer\Products",
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products"
@@ -59,29 +76,17 @@ foreach ($hive in $installerHives) {
     Get-ChildItem -Path $hive | ForEach-Object {
         $prodName = (Get-ItemProperty -Path $_.PSPath -Name "ProductName").ProductName
         if ($prodName -match "Microsoft Office" -or $prodName -match "ProPlus" -or $prodName -match "DCF MUI") {
-            Write-Host "  -> WMI-Eintrag entfernt: $prodName" -ForegroundColor Red
+            Write-Host "  -> Verwaisten Installer-Key entfernt: $prodName" -ForegroundColor Magenta
             Remove-Item -Path $_.PSPath -Recurse -Force
         }
-    }
-}
-
-# B) Spezifische GUIDs aus deinem Output
-$targetGUIDs = @("{90160000-0090-0407-0000-0000000FF1CE}", "{90160000-0011-0000-0000-0000000FF1CE}")
-foreach ($guid in $targetGUIDs) {
-    $path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$guid"
-    if (Test-Path $path) { 
-        Write-Host "  -> Spezifische GUID gelöscht: $guid" -ForegroundColor Red
-        Remove-Item $path -Recurse -Force 
     }
 }
 
 # ==========================================
 # 4. REGISTRY CLEANUP (ASSET TOOLS TARNUNG)
 # ==========================================
-# Das ist der Teil, den du gesucht hast!
-Write-Host "[4/8] Entferne Uninstall-Einträge (Verstecken vor Asset-Tools)..." -ForegroundColor Yellow
+Write-Host "[4/9] Entferne Einträge aus 'Programme und Features'..." -ForegroundColor Yellow
 
-# Uninstall Keys (Asset Management Tools schauen hier!)
 $regKeys = @(
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
     "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
@@ -90,20 +95,20 @@ foreach ($hive in $regKeys) {
     Get-ChildItem $hive | ForEach-Object {
         $name = (Get-ItemProperty $_.PSPath "DisplayName").DisplayName
         if ($name -match "Microsoft Office" -or $name -match "ProPlus" -or $_.PSChildName -match "0FF1CE") {
-            Write-Host "  -> Uninstall-Key entfernt: $name" -ForegroundColor Red
+            Write-Host "  -> Eintrag entfernt: $name" -ForegroundColor Red
             Remove-Item $_.PSPath -Recurse -Force
         }
     }
 }
 
-# Config Keys (HKLM & HKCU)
+# Config Keys löschen
 $deepPaths = @("HKLM:\SOFTWARE\Microsoft\Office", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office", "HKLM:\SOFTWARE\Microsoft\ClickToRun", "HKLM:\SOFTWARE\Microsoft\AppVISV", "HKCU:\Software\Microsoft\Office")
 foreach ($p in $deepPaths) { if (Test-Path $p) { Remove-Item $p -Recurse -Force } }
 
 # ==========================================
 # 5. DATEISYSTEM (FILES)
 # ==========================================
-Write-Host "[5/8] Lösche Dateien (Program Files, MSOCache)..." -ForegroundColor Yellow
+Write-Host "[5/9] Lösche Dateien (Program Files, MSOCache)..." -ForegroundColor Yellow
 
 $folders = @(
     "C:\Program Files\Microsoft Office", "C:\Program Files (x86)\Microsoft Office",
@@ -123,7 +128,7 @@ foreach ($f in $folders) {
 # ==========================================
 # 6. SPUREN (FIREWALL, PREFETCH, MSI-FILES)
 # ==========================================
-Write-Host "[6/8] Bereinige Spuren (Firewall, Prefetch, MSI)..." -ForegroundColor Yellow
+Write-Host "[6/9] Bereinige Spuren (Firewall, Prefetch, MSI)..." -ForegroundColor Yellow
 
 Get-NetFirewallRule | Where-Object { $_.DisplayName -match "Microsoft Office" -or $_.DisplayName -match "Outlook" } | Remove-NetFirewallRule
 Get-ChildItem "C:\Windows\Prefetch" | Where-Object { $_.Name -match "WINWORD" -or $_.Name -match "EXCEL" -or $_.Name -match "OFFICE" } | Remove-Item -Force
@@ -152,7 +157,7 @@ try {
 # ==========================================
 # 7. STARTMENÜ & SHORTCUTS
 # ==========================================
-Write-Host "[7/8] Bereinige Startmenü & Desktop..." -ForegroundColor Yellow
+Write-Host "[7/9] Bereinige Startmenü & Desktop..." -ForegroundColor Yellow
 $lnkPaths = @("C:\ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs", "$env:PUBLIC\Desktop", "$env:USERPROFILE\Desktop")
 foreach ($p in $lnkPaths) {
     if (Test-Path $p) { Get-ChildItem $p -Recurse -Include *.lnk | Where-Object { $_.Name -match "Word" -or $_.Name -match "Excel" -or $_.Name -match "Office" } | Remove-Item -Force }
@@ -161,7 +166,7 @@ foreach ($p in $lnkPaths) {
 # ==========================================
 # 8. LIBREOFFICE VERKNÜPFUNG
 # ==========================================
-Write-Host "[8/8] Setze LibreOffice als Standard..." -ForegroundColor Yellow
+Write-Host "[8/9] Setze LibreOffice als Standard..." -ForegroundColor Yellow
 $loBase = $null
 if (Test-Path "C:\Program Files\LibreOffice\program\soffice.exe") { $loBase = "C:\Program Files\LibreOffice\program" }
 elseif (Test-Path "C:\Program Files (x86)\LibreOffice\program\soffice.exe") { $loBase = "C:\Program Files (x86)\LibreOffice\program" }
@@ -181,5 +186,21 @@ if ($loBase) {
     Set-LO ".pptx" "LibreOffice.Pptx" $im
     Stop-Process -Name "explorer" -Force
 } else { Write-Host "WARNUNG: LibreOffice nicht gefunden!" -ForegroundColor Red }
+
+# ==========================================
+# 9. ABSCHLUSSPRÜFUNG (POWERSHELL STATT WMIC)
+# ==========================================
+Write-Host "`n[9/9] Abschlussprüfung (PowerShell Check)..." -ForegroundColor Yellow
+
+# Wir nutzen Get-CimInstance statt wmic, da wmic bei Ihnen fehlt
+$check = Get-CimInstance -ClassName Win32_Product | Where-Object { $_.Name -match "Microsoft Office" -or $_.Name -match "ProPlus" }
+
+if ($check) {
+    Write-Host "WARNUNG: Es wurden noch Reste in der Datenbank gefunden:" -ForegroundColor Red
+    $check | Select-Object Name, IdentifyingNumber
+} else {
+    Write-Host "ERFOLG: Keine Office-Produkte mehr gefunden." -ForegroundColor Green
+    Write-Host "Das System ist sauber." -ForegroundColor Green
+}
 
 Write-Host "`nBITTE NEUSTARTEN!" -ForegroundColor Cyan
