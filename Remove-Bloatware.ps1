@@ -1,66 +1,66 @@
 <#
 .SYNOPSIS
-    Entfernt Standard-Windows-Apps im System-Kontext, basierend auf einer Whitelist.
-.DESCRIPTION
-    Entfernt AppxPackages und ProvisionedAppxPackages.
-    Ignoriert System-Frameworks und benutzerdefinierte Whitelist.
-    Sicher für Ausführung via Remote-Shell / SYSTEM.
+    Entfernt Microsoft Bloatware inkl. Power Automate, schützt Systemkerne.
+    Läuft im System-Context.
 #>
 
-# 1. DEFINITION: Apps, die behalten werden sollen (Deine Whitelist)
-# Wir nutzen Regex-Pattern, um Variationen der Namen abzudecken.
+# 1. Whitelist: Diese Apps behalten wir (deine Liste)
 $Whitelist = @(
-    "Microsoft.MicrosoftEdge",        # Edge (Legacy/Stable)
-    "Microsoft.Windows.Photos",       # Windows-Fotoanzeige (Modern)
+    "Microsoft.MicrosoftEdge",        # Edge
+    "Microsoft.Windows.Photos",       # Fotoanzeige
     "Microsoft.Paint",                # Paint
     "Microsoft.WindowsCalculator",    # Rechner
     "Microsoft.WindowsTerminal",      # Terminal
-    "Microsoft.ZuneVideo",            # Medienwiedergabe (Legacy Name)
-    "Microsoft.ZuneMusic",            # Medienwiedergabe (Legacy Name)
-    "Microsoft.Media.Player",         # Medienwiedergabe (Neuer Name)
-    "Microsoft.RemoteDesktop",        # Remote Desktop App (Store Version)
-    "Microsoft.ScreenSketch"          # Oft nützlich (Ausschneiden & Skizzieren) - optional, hier aber sicherheitshalber geprüft
+    "Microsoft.ZuneVideo",            # Medienwiedergabe (alt)
+    "Microsoft.ZuneMusic",            # Medienwiedergabe (alt)
+    "Microsoft.Media.Player",         # Medienwiedergabe (neu)
+    "Microsoft.RemoteDesktop",        # Remote Desktop
+    "Microsoft.ScreenSketch"          # Snipping Tool (optional, oft gewünscht)
 )
 
-# 2. DEFINITION: System-Kritische Komponenten (NICHT LÖSCHEN!)
-# Löscht man diese, wird das Windows-Image beschädigt oder der Store geht nicht mehr.
-$SystemFrameworks = @(
+# 2. System-Frameworks (WICHTIG: Nicht löschen, sonst Fehler im Log)
+# Hier fügen wir auch Runtimes hinzu, die im Fehlerlog Probleme machten.
+$SystemCritical = @(
     "Microsoft.WindowsStore",
-    "Microsoft.DesktopAppInstaller",  # Winget
-    "Microsoft.Windows.Apprep.ChxApp", # SmartScreen
-    "Microsoft.SecHealthUI",          # Windows Defender UI
-    "Microsoft.AAD.BrokerPlugin",     # Auth
-    "Microsoft.AccountsControl",      # Auth
+    "Microsoft.DesktopAppInstaller",
+    "Microsoft.SecHealthUI",          # Defender Interface
+    "Microsoft.UI.Xaml",              # GUI Framework
+    "Microsoft.VCLibs",               # C++ Runtimes
+    "Microsoft.NET.Native",           # .NET Runtimes
+    "Microsoft.WindowsAppRuntime",    # Verursachte Fehler 0x80073CF3
+    "Microsoft.Services.Store",
+    "Microsoft.VP9VideoExtensions",
+    "Microsoft.HEIFImageExtension",
+    "Microsoft.WebMediaExtensions",
+    "Microsoft.WebpImageExtension",
+    "Microsoft.AAD.BrokerPlugin",
+    "Microsoft.AccountsControl",
     "Microsoft.AsyncTextService",
-    "Microsoft.BioEnrollment",        # Hello
+    "Microsoft.BioEnrollment",
     "Microsoft.CredDialogHost",
     "Microsoft.ECApp",
     "Microsoft.LockApp",
     "Microsoft.Win32WebViewHost",
-    "windows.immersivecontrolpanel",  # Settings App
-    "Microsoft.UI.Xaml",              # GUI Framework
-    "Microsoft.VCLibs",               # C++ Runtimes
-    "Microsoft.NET.Native",           # .NET Runtimes
-    "Microsoft.Services.Store.Engagement",
-    "Microsoft.VP9VideoExtensions",   # Nötig für Fotos/Video
-    "Microsoft.HEIFImageExtension",   # Nötig für Fotos
-    "Microsoft.WebMediaExtensions",   # Nötig für Edge/Video
-    "Microsoft.WebpImageExtension"    # Nötig für Fotos
+    "windows.immersivecontrolpanel",
+    "Microsoft.Windows.StartMenuExperienceHost", # Verursachte Fehler
+    "Microsoft.Windows.ContentDeliveryManager",  # Verursachte Fehler
+    "MicrosoftWindows.Client"                    # Kern-Systemkomponenten
 )
 
-# Kombinierte "Keep"-Liste
-$KeepPatterns = $Whitelist + $SystemFrameworks
+Write-Output "--- Starte optimierte Bereinigung ---"
 
-Write-Output "Starte Bereinigung im System-Kontext..."
-
-# Holen aller installierten Pakete, die von Microsoft stammen
-$Apps = Get-AppxPackage -AllUsers | Where-Object { $_.Publisher -like "*Microsoft*" }
+# Wir holen alle Microsoft Apps, filtern aber sofort die "Nicht entfernbaren" System-Apps heraus
+$Apps = Get-AppxPackage -AllUsers | Where-Object { 
+    $_.Publisher -like "*Microsoft*" -and 
+    $_.NonRemovable -eq $false -and 
+    $_.SignatureKind -ne "System"
+}
 
 foreach ($app in $Apps) {
     $shouldKeep = $false
     
-    # Prüfen, ob App in der Keep-Liste ist
-    foreach ($pattern in $KeepPatterns) {
+    # Prüfen auf Whitelist & Systemkritisch
+    foreach ($pattern in ($Whitelist + $SystemCritical)) {
         if ($app.Name -like "*$pattern*") {
             $shouldKeep = $true
             break
@@ -68,33 +68,36 @@ foreach ($app in $Apps) {
     }
 
     if ($shouldKeep) {
-        Write-Output "SKIPPING: $($app.Name) (Auf Whitelist oder System-Kritisch)"
+        # Optional: Kommentar entfernen, wenn du sehen willst, was behalten wird
+        # Write-Output "SKIPPING: $($app.Name)"
     }
     else {
-        Write-Output "REMOVING: $($app.Name)..."
+        Write-Output "REMOVING: $($app.Name) ..."
         
-        # 1. Entfernen für alle aktuellen Nutzer
+        # PowerAutomate Check: Manchmal heißt es "Flow" oder "PowerAutomateDesktop"
+        
         try {
+            # 1. Entfernen (Versuch)
             Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop
-            Write-Output "   -> AppxPackage entfernt."
+            Write-Output "   [OK] AppxPackage entfernt."
         }
         catch {
-            Write-Output "   -> Fehler beim Entfernen des AppxPackage: $($_.Exception.Message)"
+            # Fehler ignorieren, wenn App gerade offen ist oder vom System gesperrt
+            Write-Warning "   [!] Konnte App nicht entfernen: $($_.Exception.Message)"
         }
 
-        # 2. Entfernen aus dem Provisioning (damit es nicht bei neuen Usern kommt)
-        # Wir suchen den passenden Provisioned Namen basierend auf dem Appx Namen
+        # 2. Provisioning entfernen
         try {
-            $provisioned = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -eq $app.Name }
-            if ($provisioned) {
-                Remove-AppxProvisionedPackage -Online -PackageName $provisioned.PackageName -ErrorAction Stop
-                Write-Output "   -> Provisioned Package entfernt."
+            $prov = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -eq $app.Name }
+            if ($prov) {
+                Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop
+                Write-Output "   [OK] Provisioning entfernt."
             }
         }
         catch {
-            Write-Output "   -> Fehler beim Entfernen des ProvisionedPackage: $($_.Exception.Message)"
+             Write-Warning "   [!] Provisioning Fehler: $($_.Exception.Message)"
         }
     }
 }
 
-Write-Output "Bereinigung abgeschlossen."
+Write-Output "--- Fertig ---"
