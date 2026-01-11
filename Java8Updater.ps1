@@ -1,79 +1,90 @@
 # --- KONFIGURATION ---
 $downloadUrl = "https://javadl.oracle.com/webapps/download/AutoDL?BundleId=252627_99a6cb9582554a09bd4ac60f73f9b8e6"
 $installerPath = "$env:TEMP\java_installer.exe"
-$minVersion = 471 # Alle Versionen unter "Java 8 Update 471" werden gelöscht
+$minVersion = 471 
 
-# --- FUNKTION: ALTE JAVA VERSIONEN ENTFERNEN ---
+# --- FUNKTION: ALTE JAVA VERSIONEN (32 & 64 Bit) ENTFERNEN ---
 function Uninstall-OldJava {
-    Write-Host "Suche nach alten Java-Versionen (älter als Update $minVersion)..." -ForegroundColor Cyan
+    Write-Host "Suche nach ALLEN alten Java-Versionen (32-Bit & 64-Bit)..." -ForegroundColor Cyan
 
-    # Pfad zur Registry für 64-Bit Software Deinstallationen
-    $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    # Wir suchen jetzt in BEIDEN Pfaden:
+    # 1. Native 64-Bit Programme
+    # 2. 32-Bit Programme auf 64-Bit Windows (WOW6432Node)
+    $regPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
     
-    # Hole alle installierten Programme, filtere nach Java 8
-    $installedJava = Get-ItemProperty $regPath | Where-Object { 
-        $_.DisplayName -like "Java 8 Update *" 
-    }
+    $foundAny = $false
 
-    foreach ($java in $installedJava) {
-        # Extrahiere die Update-Nummer aus dem Namen (z.B. aus "Java 8 Update 211" -> "211")
-        if ($java.DisplayName -match "Java 8 Update (\d+)") {
-            $versionNumber = [int]$matches[1]
+    foreach ($path in $regPaths) {
+        # Einträge abrufen, Fehler unterdrücken falls Pfad nicht existiert
+        $installedSoftware = Get-ItemProperty $path -ErrorAction SilentlyContinue
+        
+        # Filter auf "Java 8 Update"
+        $javaInstalls = $installedSoftware | Where-Object { $_.DisplayName -like "Java 8 Update *" }
 
-            # Prüfen ob Version veraltet ist
-            if ($versionNumber -lt $minVersion) {
-                Write-Host "Veraltete Version gefunden: $($java.DisplayName)" -ForegroundColor Yellow
-                
-                # Uninstall String vorbereiten (msiexec /x {GUID} /qn)
-                # Wir nutzen hier direkt den UninstallString oder bauen ihn via PSChildName (was die GUID ist)
-                $guid = $java.PSChildName
-                
-                if ($guid -match "{.*}") {
-                    Write-Host "Deinstalliere $($java.DisplayName) ($guid)..." -ForegroundColor Magenta
+        foreach ($java in $javaInstalls) {
+            # Versionsnummer parsen
+            if ($java.DisplayName -match "Java 8 Update (\d+)") {
+                $versionNumber = [int]$matches[1]
+
+                if ($versionNumber -lt $minVersion) {
+                    $foundAny = $true
+                    Write-Host "Veraltete Version gefunden: $($java.DisplayName)" -ForegroundColor Yellow
+                    Write-Host "   -> Pfad: $($java.PSPath)" -ForegroundColor DarkGray
                     
-                    # Silent Uninstall Befehl
-                    $proc = Start-Process "msiexec.exe" -ArgumentList "/x $guid /qn /norestart" -Wait -PassThru
+                    # GUID (Product Code) ermitteln
+                    # Manchmal ist PSChildName die GUID, manchmal muss man sie aus dem UninstallString holen
+                    $guid = $java.PSChildName
                     
-                    if ($proc.ExitCode -eq 0) {
-                        Write-Host "Deinstallation erfolgreich." -ForegroundColor Green
+                    # Fallback: Wenn der Key-Name keine GUID ist, versuchen wir sie aus dem UninstallString zu parsen
+                    if ($guid -notmatch "{.*}") {
+                         if ($java.UninstallString -match "{.*}") {
+                            $guid = $matches[0]
+                         }
+                    }
+
+                    if ($guid -match "{.*}") {
+                        Write-Host "   -> Starte Deinstallation für GUID: $guid" -ForegroundColor Magenta
+                        
+                        # msiexec /x {GUID} /qn /norestart
+                        $proc = Start-Process "msiexec.exe" -ArgumentList "/x $guid /qn /norestart" -Wait -PassThru
+                        
+                        if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 1605 -or $proc.ExitCode -eq 3010) {
+                            # 0=Erfolg, 1605=War schon weg, 3010=Neustart nötig (aber erfolgreich)
+                            Write-Host "   -> Deinstallation erfolgreich." -ForegroundColor Green
+                        } else {
+                            Write-Host "   -> FEHLER bei Deinstallation (Code $($proc.ExitCode)). Versuche es manuell." -ForegroundColor Red
+                        }
                     } else {
-                        Write-Host "Deinstallation beendet mit Code $($proc.ExitCode)." -ForegroundColor Red
+                         Write-Host "   -> Konnte keine gültige GUID finden. Überspringe." -ForegroundColor Red
                     }
                 }
-            } else {
-                Write-Host "Version $($java.DisplayName) ist aktuell genug (behalten)." -ForegroundColor Gray
             }
         }
     }
+
+    if (-not $foundAny) {
+        Write-Host "Keine veralteten Versionen unter Update $minVersion gefunden." -ForegroundColor Gray
+    }
 }
 
+# --- HAUPTABLAUF ---
 try {
-    # 1. Bereinigung starten
+    # 1. Alte Versionen bereinigen
     Uninstall-OldJava
 
     Write-Host "------------------------------------------------"
     
-    # 2. Neuer Download
-    Write-Host "Lade neue Java Version herunter..." -ForegroundColor Cyan
+    # 2. Download
+    Write-Host "Lade NEUES Java herunter..." -ForegroundColor Cyan
     Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
     Write-Host "Download abgeschlossen." -ForegroundColor Green
 
-    # 3. Installation
-    Write-Host "Installiere neue Java Version..." -ForegroundColor Cyan
-    # /s = Silent Installation
+    # 3. Installieren
+    Write-Host "Installiere Java (Silent)..." -ForegroundColor Cyan
     $process = Start-Process -FilePath $installerPath -ArgumentList "/s" -Wait -PassThru
     
     if ($process.ExitCode -eq 0) {
-        Write-Host "Java Installation erfolgreich abgeschlossen." -ForegroundColor Green
-    } else {
-        Write-Host "Installation fehlgeschlagen. Exit-Code: $($process.ExitCode)" -ForegroundColor Red
-    }
-
-} catch {
-    Write-Error "Ein kritischer Fehler ist aufgetreten: $_"
-} finally {
-    # 4. Aufräumen
-    if (Test-Path $installerPath) {
-        Remove-Item -Path $installerPath -Force
-    }
-}
+        Write-Host "Java Installation erfolgreich."
