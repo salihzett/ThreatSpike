@@ -1,5 +1,6 @@
 # URL der Java-Installationsdatei (vom Benutzer bereitgestellt)
-$url = "https://javadl.oracle.com/webapps/download/AutoDL?BundleId=252627_99a6cb9582554a09bd4ac60f73f9b8e6"
+$url = "https://javadl.oracle.com/webapps/download/AutoDL?BundleId=252626_99a6cb9582554a09bd4ac60f73f9b8e6"
+# 32bit version Windows Offline
 
 # Speicherort für den Download (Temporärer Ordner)
 $installerPath = "$env:TEMP\java_installer.exe"
