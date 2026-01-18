@@ -1,4 +1,4 @@
-# ====== KB5072033 Installer Script ======
+# ====== KB5074109 Installer Script ======
 
 # TLS 1.2 erzwingen für sichere Downloads
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -40,6 +40,6 @@ function Install-KB {
 # ====== Hauptteil ======
 Ensure-PSWindowsUpdate
 Import-PSWindowsUpdateModule
-Install-KB -KBID "KB5072033"
+Install-KB -KBID "KB5074109"
 
 Write-Output "Script fertig."
