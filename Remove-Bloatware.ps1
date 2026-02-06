@@ -1,8 +1,10 @@
 <#
 .SYNOPSIS
-    All-in-One Cleaner v5:
-    - NEU: OneDrive "Nuclear"-Option (Löscht Dateien in C:\Users\*\AppData).
-    - Behält: Whitelist, System-Schutz, entfernt Clipchamp/Bing.
+    All-in-One Cleaner v6 (Brute Force Edition):
+    - FIX: Kein UAC-Popup mehr (ruft keinen Uninstaller auf).
+    - FIX: Löscht OneDrive-Dateien hart von der Platte.
+    - FIX: Löscht Einträge aus der "Installierte Apps" Liste via Registry.
+    - FIX: Entfernt Clipchamp-Stubs.
 #>
 
 # ---------------------------------------------------------
@@ -37,82 +39,95 @@ $SystemCritical = @(
 )
 
 # ---------------------------------------------------------
-# 2. ONEDRIVE ZERSTÖREN (Nuclear Option)
+# 2. ONEDRIVE "BRUTE FORCE" LÖSCHUNG
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 1] OneDrive Manuelle Entfernung ---"
+Write-Output "--- [PHASE 1] OneDrive Dateien & Registry löschen ---"
 
-# 1. Prozess töten
-Write-Output "Beende OneDrive Prozesse..."
+# 1. Prozesse hart beenden
 taskkill /f /im OneDrive.exe /T 2>$null
 taskkill /f /im "Microsoft OneDrive.exe" /T 2>$null
+taskkill /f /im Explorer.exe /T 2>$null # Explorer kurz killen, um File-Locks zu lösen
 Start-Sleep -Seconds 2
 
-# 2. Versuch der offiziellen Deinstallation (System-Level)
-$Uninstalls = @(
-    "$env:SystemRoot\SysWOW64\OneDriveSetup.exe",
-    "$env:SystemRoot\System32\OneDriveSetup.exe",
-    "C:\Program Files\Microsoft OneDrive\OneDriveSetup.exe",
-    "C:\Program Files (x86)\Microsoft OneDrive\OneDriveSetup.exe"
+# 2. DATEIEN LÖSCHEN (Wir fragen nicht mehr den Uninstaller)
+Write-Output "Lösche Programm-Dateien..."
+$OneDriveFolders = @(
+    "C:\Program Files\Microsoft OneDrive",
+    "C:\Program Files (x86)\Microsoft OneDrive",
+    "C:\ProgramData\Microsoft OneDrive",
+    "C:\OneDriveTemp"
 )
-foreach ($exe in $Uninstalls) {
-    if (Test-Path $exe) {
-        Write-Output "Führe Uninstaller aus: $exe"
-        Start-Process -FilePath $exe -ArgumentList "/uninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue
-    }
+foreach ($folder in $OneDriveFolders) {
+    if (Test-Path $folder) { Remove-Item -Path $folder -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# 3. MANUELLE BEREINIGUNG (Dateisystem)
-Write-Output "Lösche OneDrive Ordner (System & User)..."
-
-# A. System-Ordner
-Remove-Item -Path "C:\ProgramData\Microsoft OneDrive" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "C:\Program Files\Microsoft OneDrive" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "C:\Program Files (x86)\Microsoft OneDrive" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "C:\OneDriveTemp" -Recurse -Force -ErrorAction SilentlyContinue
-
-# B. Benutzer-Ordner (Loop durch C:\Users)
-# Da wir SYSTEM sind, müssen wir in jeden User-Ordner schauen
+# 3. BENUTZER-ORDNER BEREINIGEN (Loop durch C:\Users)
+Write-Output "Lösche OneDrive aus Benutzer-Profilen..."
 $Users = Get-ChildItem -Path "C:\Users" -Directory
 foreach ($User in $Users) {
-    $OneDrivePath = "$($User.FullName)\AppData\Local\Microsoft\OneDrive"
-    if (Test-Path $OneDrivePath) {
-        Write-Output "   -> Lösche bei User $($User.Name)..."
-        Remove-Item -Path $OneDrivePath -Recurse -Force -ErrorAction SilentlyContinue
+    # AppData Local löschen
+    $LocalOD = "$($User.FullName)\AppData\Local\Microsoft\OneDrive"
+    if (Test-Path $LocalOD) {
+        Write-Output "   -> Bereinige: $LocalOD"
+        Remove-Item -Path $LocalOD -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    
+    # Startmenü Verknüpfung löschen
+    $Shortcut = "$($User.FullName)\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk"
+    if (Test-Path $Shortcut) { Remove-Item -Path $Shortcut -Force -ErrorAction SilentlyContinue }
+}
+
+# 4. REGISTRY CLEANUP (Damit es aus der Liste verschwindet)
+Write-Output "Bereinige Registry-Einträge (Liste)..."
+
+# Systemweite Uninstall-Keys suchen und löschen
+$UninstallKeys = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+)
+
+foreach ($Hive in $UninstallKeys) {
+    Get-ChildItem $Hive -ErrorAction SilentlyContinue | ForEach-Object {
+        $Name = (Get-ItemProperty -Path $_.PSPath -Name "DisplayName" -ErrorAction SilentlyContinue).DisplayName
+        if ($Name -like "*OneDrive*") {
+            Write-Output "   -> Entferne Registry-Key: $Name"
+            Remove-Item -Path $_.PSPath -Recurse -Force
+        }
     }
 }
 
-# 4. REGISTRY BEREINIGUNG (Explorer Integration entfernen)
-Write-Output "Bereinige Registry..."
-$RegKeys = @(
-    "HKCR:\CLSID\{018D5C66-4533-4307-9B53-224DE2ED1FE6}",
-    "HKCR:\Wow6432Node\CLSID\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"
-)
-foreach ($Key in $RegKeys) {
-    if (Test-Path $Key) { Remove-Item -Path $Key -Recurse -Force -ErrorAction SilentlyContinue }
-}
+# Explorer neu starten
+Start-Process "explorer.exe"
 
 # ---------------------------------------------------------
-# 3. CLIPCHAMP, BING & REMOTEHILFE
+# 3. CLIPCHAMP & BING (Provisioning + Registry Stub Killer)
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 2] Apps Entfernen (Clipchamp/Bing) ---"
+Write-Output "--- [PHASE 2] Clipchamp & Stubs entfernen ---"
 
 $KillPatterns = @("*Clipchamp*", "*PowerAutomate*", "*QuickAssist*", "*Microsoft.Bing*", "*BingWeather*", "*BingNews*")
 
+# 1. Provisioning entfernen (Das verhindert die Neuinstallation)
 foreach ($pattern in $KillPatterns) {
-    Get-AppxPackage -AllUsers | Where-Object { $_.Name -like $pattern -or $_.DisplayName -like $pattern } | ForEach-Object {
-        Write-Output "Entferne Appx: $($_.Name)"
-        Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
-    }
     Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pattern -or $_.PackageName -like $pattern } | ForEach-Object {
-        Write-Output "Entferne Provisioned: $($_.DisplayName)"
+        Write-Output "Entferne Provisioning: $($_.DisplayName)"
         Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
     }
 }
 
+# 2. Installierte Pakete entfernen
+Get-AppxPackage -AllUsers | Where-Object { $_.Name -like "*Clipchamp*" -or $_.PublisherId -eq "7m82760505" } | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+
+# 3. Clipchamp Registry Stub aus "InboxApps" entfernen (Der 8KB Eintrag)
+# Das ist oft der Grund, warum es noch angezeigt wird
+$InboxPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore\InboxApplications"
+if (Test-Path $InboxPath) {
+    Get-ChildItem $InboxPath | Where-Object { $_.Name -like "*Clipchamp*" } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # ---------------------------------------------------------
-# 4. GENERELLE BEREINIGUNG
+# 4. GENERELLE BEREINIGUNG (Appx)
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 3] Generelle Bereinigung ---"
+Write-Output "--- [PHASE 3] Generelle Apps ---"
 
 $Apps = Get-AppxPackage -AllUsers | Where-Object { 
     $_.Publisher -like "*Microsoft*" -and 
@@ -137,12 +152,8 @@ foreach ($app in $Apps) {
 # ---------------------------------------------------------
 # 5. ASSISTENTEN
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 4] Assistenten ---"
-$UpgradeTools = @("C:\Windows10Upgrade\Windows10UpgraderApp.exe", "C:\Windows11InstallationAssistant\Windows11InstallationAssistant.exe")
-foreach ($tool in $UpgradeTools) {
-    if (Test-Path $tool) { Start-Process -FilePath $tool -ArgumentList "/ForceUninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue }
-}
+Write-Output "--- [PHASE 4] Assistenten Reste ---"
 $Folders = @("C:\Windows10Upgrade", "C:\Windows11InstallationAssistant", "C:\$WINDOWS.~BT")
 foreach ($f in $Folders) { if (Test-Path $f) { Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue } }
 
-Write-Output "Bereinigung v5 komplett."
+Write-Output "Bereinigung v6 komplett."
