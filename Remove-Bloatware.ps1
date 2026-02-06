@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    All-in-One Cleaner v7 (Final Fix):
-    - Entfernt Dateien hart (OneDrive/Clipchamp).
-    - Entfernt "Geister-Einträge" aus der Software-Liste (Scannt alle User-Hives).
-    - Behält Whitelist (Edge, Paint, etc.).
+    All-in-One Cleaner v8 (Safe Mode):
+    - FIX: Tötet NICHT mehr den Explorer (verhindert Einfrieren).
+    - Entfernt: OneDrive Dateien, Registry-Einträge, Clipchamp, Bing.
+    - Behält: Whitelist.
 #>
 
 # ---------------------------------------------------------
@@ -37,18 +37,17 @@ $SystemCritical = @(
     "Microsoft.Windows.ShellExperienceHost", "MicrosoftWindows.Client"
 )
 
-# Suchbegriffe für Dinge, die komplett weg müssen (Dateien & Registry)
+# Suchbegriffe für Geister-Einträge
 $GhostTargets = @("*OneDrive*", "*Clipchamp*")
 
 # ---------------------------------------------------------
-# 2. DATEIEN LÖSCHEN (Brute Force)
+# 2. DATEIEN LÖSCHEN (Safe Mode)
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 1] Dateien & Prozesse beenden ---"
+Write-Output "--- [PHASE 1] OneDrive Bereinigung ---"
 
-# Prozesse beenden
+# Nur OneDrive beenden, NICHT Explorer
 taskkill /f /im OneDrive.exe /T 2>$null
 taskkill /f /im "Microsoft OneDrive.exe" /T 2>$null
-taskkill /f /im Explorer.exe /T 2>$null # Explorer Neustart hilft Locks zu lösen
 Start-Sleep -Seconds 2
 
 # System-Ordner löschen
@@ -61,7 +60,7 @@ $Folders = @(
 )
 foreach ($f in $Folders) { if (Test-Path $f) { Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue } }
 
-# Benutzer-Ordner löschen (Loop durch alle User)
+# Benutzer-Ordner löschen
 Write-Output "Lösche User-Daten (AppData)..."
 $Users = Get-ChildItem -Path "C:\Users" -Directory
 foreach ($User in $Users) {
@@ -73,11 +72,10 @@ foreach ($User in $Users) {
 }
 
 # ---------------------------------------------------------
-# 3. REGISTRY CLEANER (Entfernt Einträge aus der Liste)
+# 3. REGISTRY CLEANER (Listen-Bereinigung)
 # ---------------------------------------------------------
 Write-Output "--- [PHASE 2] Registry Geister-Einträge entfernen ---"
 
-# Funktion zum Scannen und Löschen
 function Remove-RegEntry {
     param ($RootPath)
     if (-not (Test-Path $RootPath)) { return }
@@ -89,7 +87,7 @@ function Remove-RegEntry {
 
         foreach ($target in $GhostTargets) {
             if ($DisplayName -like $target) {
-                Write-Output "   [REGISTRY] Entferne Eintrag: '$DisplayName' aus $RootPath"
+                Write-Output "   [REGISTRY] Entferne: '$DisplayName' aus $RootPath"
                 Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
@@ -104,18 +102,17 @@ $SystemHives = @(
 foreach ($hive in $SystemHives) { Remove-RegEntry -RootPath $hive }
 
 # B. Benutzer-spezifische Uninstall-Listen (HKU Scan)
-# Das ist wichtig, da wir als SYSTEM laufen, der Eintrag aber bei User "Salih" liegt
 Write-Output "Scanne Benutzer-Profile in Registry..."
 $UserSIDs = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" | Select-Object -ExpandProperty PSChildName
 
 foreach ($sid in $UserSIDs) {
-    if ($sid -like "S-1-5-21*") { # Nur echte User Accounts
+    if ($sid -like "S-1-5-21*") { 
         $UserUninstallPath = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall"
         Remove-RegEntry -RootPath $UserUninstallPath
     }
 }
 
-# C. Clipchamp Inbox Stub (Der 8KB Eintrag)
+# C. Clipchamp Inbox Stub
 $InboxPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore\InboxApplications"
 if (Test-Path $InboxPath) {
     Get-ChildItem $InboxPath | Where-Object { $_.Name -like "*Clipchamp*" } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -126,15 +123,12 @@ if (Test-Path $InboxPath) {
 # ---------------------------------------------------------
 Write-Output "--- [PHASE 3] Store Apps Bereinigung ---"
 
-# Kill-Patterns (Bing, etc.)
 $KillPatterns = @("*Clipchamp*", "*PowerAutomate*", "*QuickAssist*", "*Microsoft.Bing*", "*BingWeather*", "*BingNews*")
 
-# Provisioning löschen
 foreach ($pattern in $KillPatterns) {
     Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pattern } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
 }
 
-# Apps filtern und löschen
 $Apps = Get-AppxPackage -AllUsers | Where-Object { 
     $_.Publisher -like "*Microsoft*" -and 
     $_.NonRemovable -eq $false -and 
@@ -143,12 +137,9 @@ $Apps = Get-AppxPackage -AllUsers | Where-Object {
 
 foreach ($app in $Apps) {
     $shouldKeep = $false
-    
-    # Whitelist Check
     foreach ($pattern in ($Whitelist + $SystemCritical)) {
         if ($app.Name -like "*$pattern*") { $shouldKeep = $true; break }
     }
-    # Force Kill Check
     foreach ($kill in $KillPatterns) {
         if ($app.Name -like $kill) { $shouldKeep = $false }
     }
@@ -159,7 +150,7 @@ foreach ($app in $Apps) {
 }
 
 # ---------------------------------------------------------
-# 5. ASSISTENTEN & FINALE
+# 5. ASSISTENTEN
 # ---------------------------------------------------------
 Write-Output "--- [PHASE 4] Assistenten ---"
 $UpgradeTools = @("C:\Windows10Upgrade\Windows10UpgraderApp.exe", "C:\Windows11InstallationAssistant\Windows11InstallationAssistant.exe")
@@ -168,10 +159,5 @@ foreach ($tool in $UpgradeTools) {
 }
 $Folders = @("C:\Windows10Upgrade", "C:\Windows11InstallationAssistant", "C:\$WINDOWS.~BT")
 foreach ($f in $Folders) { if (Test-Path $f) { Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue } }
-
-# Explorer neu starten, damit Cache geleert wird
-Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
-Start-Process explorer.exe
 
 Write-Output "Vorgang abgeschlossen."
