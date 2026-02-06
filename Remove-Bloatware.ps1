@@ -1,33 +1,34 @@
 <#
 .SYNOPSIS
-    All-in-One Cleaner v2: Entfernt Bloatware, Clipchamp, PowerAutomate, Update-Assistenten.
-    NEU: Entfernt explizit Remotehilfe (Schnellhilfe) & Bing.
-    Schützt Systemkomponenten & Whitelist.
+    All-in-One Cleaner v3:
+    - Korrigiert: Clipchamp wird jetzt gefunden (Hersteller-Filter ignoriert).
+    - Entfernt: Bloatware, PowerAutomate, Update-Assistenten, Bing, Remotehilfe.
+    - Behält: Edge, Fotos, Paint, Rechner, Terminal, Medienwiedergabe.
 #>
 
 # ---------------------------------------------------------
-# 1. KONFIGURATION
+# 1. DEFINITIONEN
 # ---------------------------------------------------------
 
-# Deine Whitelist (Apps, die bleiben sollen)
+# Apps, die sicher bleiben sollen (Whitelist)
 $Whitelist = @(
-    "Microsoft.MicrosoftEdge",        # Edge Browser
-    "Microsoft.Windows.Photos",       # Fotos
-    "Microsoft.Paint",                # Paint
-    "Microsoft.WindowsCalculator",    # Rechner
-    "Microsoft.WindowsTerminal",      # Terminal
-    "Microsoft.ZuneVideo",            # Medienwiedergabe (alt)
-    "Microsoft.ZuneMusic",            # Medienwiedergabe (alt)
-    "Microsoft.Media.Player",         # Medienwiedergabe (neu)
-    "Microsoft.RemoteDesktop",        # Remote Desktop Client (Nicht Remotehilfe!)
-    "Microsoft.ScreenSketch"          # Snipping Tool
+    "Microsoft.MicrosoftEdge",
+    "Microsoft.Windows.Photos",
+    "Microsoft.Paint",
+    "Microsoft.WindowsCalculator",
+    "Microsoft.WindowsTerminal",
+    "Microsoft.ZuneVideo",            # Medienwiedergabe (Legacy)
+    "Microsoft.ZuneMusic",            # Medienwiedergabe (Legacy)
+    "Microsoft.Media.Player",         # Medienwiedergabe (Neu)
+    "Microsoft.RemoteDesktop",        # Remote Desktop Client Store App
+    "Microsoft.ScreenSketch",         # Snipping Tool
+    "Microsoft.WindowsStore",         # Store (Systemkritisch)
+    "Microsoft.DesktopAppInstaller",  # Winget (Systemkritisch)
+    "Microsoft.SecHealthUI"           # Defender UI (Systemkritisch)
 )
 
-# System-Kritische Komponenten (Schutz vor Bootloops/Fehlern)
+# System-Komponenten, die wir keinesfalls anfassen (Verhindert Fehler)
 $SystemCritical = @(
-    "Microsoft.WindowsStore",
-    "Microsoft.DesktopAppInstaller",
-    "Microsoft.SecHealthUI",
     "Microsoft.UI.Xaml",
     "Microsoft.VCLibs",
     "Microsoft.NET.Native",
@@ -51,19 +52,34 @@ $SystemCritical = @(
     "MicrosoftWindows.Client"
 )
 
-# Apps, die ZWINGEND weg müssen (Override für Systemschutz)
-$ForceRemoveKeywords = @(
-    "Clipchamp", 
-    "PowerAutomate", 
-    "QuickAssist",      # Das ist die "Remotehilfe/Schnellhilfe" App
-    "Microsoft.Bing",   # Bing Suche / News / Weather
-    "BingWeather",
-    "BingNews"
-)
+# ---------------------------------------------------------
+# 2. SPEZIAL-LÖSCHUNG: Clipchamp, Bing, Remotehilfe
+# ---------------------------------------------------------
+# Wir suchen diese Apps unabhängig vom Publisher ("Microsoft" oder "Clipchamp Inc")
+Write-Output "--- [PHASE 1] Gezielte Löschung (Clipchamp, Bing, etc.) ---"
 
-Write-Output "--- [PHASE 1] Apps & Store Bereinigung ---"
+$KillPatterns = @("*Clipchamp*", "*PowerAutomate*", "*QuickAssist*", "*Microsoft.Bing*", "*BingWeather*", "*BingNews*")
 
-# Alle Microsoft Apps holen
+foreach ($pattern in $KillPatterns) {
+    # 1. Installierte Pakete löschen
+    Get-AppxPackage -AllUsers | Where-Object { $_.Name -like $pattern -or $_.DisplayName -like $pattern } | ForEach-Object {
+        Write-Output "KILLING: $($_.Name) ($($_.Version))"
+        Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+    }
+    
+    # 2. Aus dem Image entfernen (damit es nicht wiederkommt)
+    Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pattern -or $_.PackageName -like $pattern } | ForEach-Object {
+        Write-Output "DEPROVISIONING: $($_.DisplayName)"
+        Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+    }
+}
+
+# ---------------------------------------------------------
+# 3. GENERELLE MICROSOFT BEREINIGUNG
+# ---------------------------------------------------------
+Write-Output "--- [PHASE 2] Generelle Microsoft-Bloatware Bereinigung ---"
+
+# Hier filtern wir nur nach Microsoft Publisher, um nicht Intel/Nvidia Apps zu löschen
 $Apps = Get-AppxPackage -AllUsers | Where-Object { 
     $_.Publisher -like "*Microsoft*" -and 
     $_.NonRemovable -eq $false -and 
@@ -72,103 +88,57 @@ $Apps = Get-AppxPackage -AllUsers | Where-Object {
 
 foreach ($app in $Apps) {
     $shouldKeep = $false
-    $forceDelete = $false
     
-    # 1. Check: Muss es zwingend weg?
-    foreach ($keyword in $ForceRemoveKeywords) {
-        if ($app.Name -like "*$keyword*") {
-            $forceDelete = $true
+    # Prüfen ob auf Whitelist oder Systemkritisch
+    foreach ($pattern in ($Whitelist + $SystemCritical)) {
+        if ($app.Name -like "*$pattern*") {
+            $shouldKeep = $true
             break
         }
     }
 
-    # 2. Check: Ist es auf der Whitelist (nur wenn kein ForceDelete)?
-    if (-not $forceDelete) {
-        foreach ($pattern in ($Whitelist + $SystemCritical)) {
-            if ($app.Name -like "*$pattern*") {
-                $shouldKeep = $true
-                break
-            }
-        }
+    # Wenn es Clipchamp/Bing ist, haben wir es oben schon versucht, aber sicher ist sicher: Weg damit.
+    foreach ($kill in $KillPatterns) {
+        if ($app.Name -like $kill) { $shouldKeep = $false }
     }
 
     if ($shouldKeep) {
-        # Write-Output "SKIPPING: $($app.Name)" 
+        # Write-Output "SKIPPING: $($app.Name)"
     }
     else {
-        Write-Output "REMOVING Appx: $($app.Name) ..."
-        
+        Write-Output "REMOVING: $($app.Name) ..."
         try {
             Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop
         } catch {
-            Write-Warning "   -> Fehler beim Entfernen: $($_.Exception.Message)"
-        }
-
-        try {
-            $prov = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -eq $app.Name }
-            if ($prov) {
-                Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop
-                Write-Output "   -> Provisioning entfernt."
-            }
-        } catch {
-             Write-Warning "   -> Provisioning Fehler: $($_.Exception.Message)"
+            Write-Warning "   -> Fehler: $($_.Exception.Message)"
         }
     }
 }
 
 # ---------------------------------------------------------
-# 2. SYSTEM-FEATURES (Capabilities)
+# 4. KLASSISCHE SOFTWARE (EXE/MSI)
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 2] System-Features Bereinigung ---"
+Write-Output "--- [PHASE 3] EXE/MSI Bereinigung ---"
 
-# Entfernt die alte "Remotehilfe" Systemkomponente, falls vorhanden
-try {
-    $qaCapability = Get-WindowsCapability -Online | Where-Object { $_.Name -like "*App.Support.QuickAssist*" -and $_.State -eq "Installed" }
-    if ($qaCapability) {
-        Write-Output "Entferne Legacy Remotehilfe (Capability)..."
-        Remove-WindowsCapability -Online -Name $qaCapability.Name -ErrorAction SilentlyContinue
-    }
-} catch {}
-
-# ---------------------------------------------------------
-# 3. KLASSISCHE SOFTWARE (Exe/MSI)
-# ---------------------------------------------------------
-Write-Output "--- [PHASE 3] Update-Assistenten & MSI ---"
-
-# Tools
+# Update Assistenten
 $UpgradeTools = @(
     "C:\Windows10Upgrade\Windows10UpgraderApp.exe",
     "C:\Windows11InstallationAssistant\Windows11InstallationAssistant.exe"
 )
-
 foreach ($tool in $UpgradeTools) {
     if (Test-Path $tool) {
-        Write-Output "Deinstalliere Tool: $tool"
+        Write-Output "Deinstalliere Assistent: $tool"
         Start-Process -FilePath $tool -ArgumentList "/ForceUninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue
     }
 }
 
-# Ordner
-$FoldersToRemove = @(
-    "C:\Windows10Upgrade",
-    "C:\Windows11InstallationAssistant",
-    "C:\$WINDOWS.~BT"
-)
-foreach ($folder in $FoldersToRemove) {
-    if (Test-Path $folder) {
-        Write-Output "Lösche Ordner: $folder"
-        Remove-Item -Path $folder -Recurse -Force -ErrorAction SilentlyContinue
-    }
+# Ordner löschen
+$Folders = @("C:\Windows10Upgrade", "C:\Windows11InstallationAssistant", "C:\$WINDOWS.~BT")
+foreach ($f in $Folders) {
+    if (Test-Path $f) { Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# MSI Pakete via PackageManagement
-$BloatPackages = @("*Power Automate*", "*Clipchamp*", "*Update Assistant*", "*Installation Assistant*")
-Get-Package -Name $BloatPackages -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Output "Deinstalliere Paket: $($_.Name)"
-    Uninstall-Package -InputObject $_ -Force -ErrorAction SilentlyContinue
-}
+# System-Feature Remotehilfe (Legacy Capability) entfernen
+Get-WindowsCapability -Online | Where-Object {$_.Name -like "*QuickAssist*"} | Remove-WindowsCapability -Online -ErrorAction SilentlyContinue
 
-# Tasks bereinigen
-Get-ScheduledTask | Where-Object { $_.TaskName -like "*UpdateAssistant*" } | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-
-Write-Output "Bereinigung komplett."
+Write-Output "Vorgang beendet."
