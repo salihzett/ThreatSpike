@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    All-in-One Cleaner v8 (Safe Mode):
-    - FIX: Tötet NICHT mehr den Explorer (verhindert Einfrieren).
-    - Entfernt: OneDrive Dateien, Registry-Einträge, Clipchamp, Bing.
-    - Behält: Whitelist.
+    All-in-One Cleaner v9 (Verbose Mode):
+    - Zeigt LIVE an, welche App gerade geprüft wird (kein "Einfrieren" mehr).
+    - Unterdrückt die technische "Path/Online" Ausgabe.
+    - OneDrive & Registry Fix inklusive.
 #>
 
 # ---------------------------------------------------------
@@ -37,21 +37,17 @@ $SystemCritical = @(
     "Microsoft.Windows.ShellExperienceHost", "MicrosoftWindows.Client"
 )
 
-# Suchbegriffe für Geister-Einträge
 $GhostTargets = @("*OneDrive*", "*Clipchamp*")
 
 # ---------------------------------------------------------
-# 2. DATEIEN LÖSCHEN (Safe Mode)
+# 2. DATEIEN LÖSCHEN
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 1] OneDrive Bereinigung ---"
+Write-Output "--- [PHASE 1] OneDrive Dateien ---"
 
-# Nur OneDrive beenden, NICHT Explorer
 taskkill /f /im OneDrive.exe /T 2>$null
 taskkill /f /im "Microsoft OneDrive.exe" /T 2>$null
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 1
 
-# System-Ordner löschen
-Write-Output "Lösche Programm-Ordner..."
 $Folders = @(
     "C:\Program Files\Microsoft OneDrive",
     "C:\Program Files (x86)\Microsoft OneDrive",
@@ -60,21 +56,18 @@ $Folders = @(
 )
 foreach ($f in $Folders) { if (Test-Path $f) { Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue } }
 
-# Benutzer-Ordner löschen
-Write-Output "Lösche User-Daten (AppData)..."
 $Users = Get-ChildItem -Path "C:\Users" -Directory
 foreach ($User in $Users) {
     $LocalOD = "$($User.FullName)\AppData\Local\Microsoft\OneDrive"
     if (Test-Path $LocalOD) { Remove-Item -Path $LocalOD -Recurse -Force -ErrorAction SilentlyContinue }
-    
     $Shortcut = "$($User.FullName)\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk"
     if (Test-Path $Shortcut) { Remove-Item -Path $Shortcut -Force -ErrorAction SilentlyContinue }
 }
 
 # ---------------------------------------------------------
-# 3. REGISTRY CLEANER (Listen-Bereinigung)
+# 3. REGISTRY CLEANER
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 2] Registry Geister-Einträge entfernen ---"
+Write-Output "--- [PHASE 2] Registry Cleaner ---"
 
 function Remove-RegEntry {
     param ($RootPath)
@@ -87,24 +80,21 @@ function Remove-RegEntry {
 
         foreach ($target in $GhostTargets) {
             if ($DisplayName -like $target) {
-                Write-Output "   [REGISTRY] Entferne: '$DisplayName' aus $RootPath"
+                Write-Output "   [REGISTRY] Entferne: '$DisplayName'"
                 Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
     }
 }
 
-# A. Systemweite Uninstall-Listen
 $SystemHives = @(
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
     "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
 )
 foreach ($hive in $SystemHives) { Remove-RegEntry -RootPath $hive }
 
-# B. Benutzer-spezifische Uninstall-Listen (HKU Scan)
-Write-Output "Scanne Benutzer-Profile in Registry..."
+Write-Output "   -> Scanne Benutzer-Profile..."
 $UserSIDs = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" | Select-Object -ExpandProperty PSChildName
-
 foreach ($sid in $UserSIDs) {
     if ($sid -like "S-1-5-21*") { 
         $UserUninstallPath = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall"
@@ -112,7 +102,6 @@ foreach ($sid in $UserSIDs) {
     }
 }
 
-# C. Clipchamp Inbox Stub
 $InboxPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore\InboxApplications"
 if (Test-Path $InboxPath) {
     Get-ChildItem $InboxPath | Where-Object { $_.Name -like "*Clipchamp*" } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -121,21 +110,33 @@ if (Test-Path $InboxPath) {
 # ---------------------------------------------------------
 # 4. APPX / STORE BEREINIGUNG
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 3] Store Apps Bereinigung ---"
+Write-Output "--- [PHASE 3] Apps Bereinigung (Bitte warten...) ---"
 
 $KillPatterns = @("*Clipchamp*", "*PowerAutomate*", "*QuickAssist*", "*Microsoft.Bing*", "*BingWeather*", "*BingNews*")
 
+# Provisioning löschen (Output unterdrückt mit | Out-Null)
 foreach ($pattern in $KillPatterns) {
-    Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pattern } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+    Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pattern } | ForEach-Object {
+        Write-Output "   -> Entferne Image-Paket: $($_.DisplayName)"
+        Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue | Out-Null
+    }
 }
 
+# Installierte Apps scannen
 $Apps = Get-AppxPackage -AllUsers | Where-Object { 
     $_.Publisher -like "*Microsoft*" -and 
     $_.NonRemovable -eq $false -and 
     $_.SignatureKind -ne "System"
 }
 
+$Total = $Apps.Count
+$Count = 0
+
 foreach ($app in $Apps) {
+    $Count++
+    # Fortschrittsanzeige im Terminal (überschreibt die gleiche Zeile)
+    Write-Host -NoNewline "`r   -> Prüfe App [$Count / $Total]: $($app.Name)                         "
+    
     $shouldKeep = $false
     foreach ($pattern in ($Whitelist + $SystemCritical)) {
         if ($app.Name -like "*$pattern*") { $shouldKeep = $true; break }
@@ -145,9 +146,15 @@ foreach ($app in $Apps) {
     }
 
     if (-not $shouldKeep) {
-        try { Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop } catch {}
+        Write-Host "`n      [LÖSCHE] $($app.Name)..." -ForegroundColor Yellow
+        try { 
+            Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop 
+        } catch {
+            Write-Host "      [FEHLER] Konnte nicht löschen." -ForegroundColor Red
+        }
     }
 }
+Write-Host "`n" # Neue Zeile nach Loop
 
 # ---------------------------------------------------------
 # 5. ASSISTENTEN
@@ -160,4 +167,4 @@ foreach ($tool in $UpgradeTools) {
 $Folders = @("C:\Windows10Upgrade", "C:\Windows11InstallationAssistant", "C:\$WINDOWS.~BT")
 foreach ($f in $Folders) { if (Test-Path $f) { Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue } }
 
-Write-Output "Vorgang abgeschlossen."
+Write-Output "FERTIG! Bitte Einstellungen schließen und neu prüfen."
