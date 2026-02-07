@@ -111,4 +111,73 @@ if (Test-Path $InboxPath) {
 # ---------------------------------------------------------
 # 4. APPX / STORE BEREINIGUNG
 # ---------------------------------------------------------
-Write-Output "---
+Write-Output "--- [PHASE 3] Apps Bereinigung (Bitte warten...) ---"
+
+# --- ZUSATZ: SPEZIALBEHANDLUNG CLIPCHAMP ---
+Write-Host "   -> [PRIORITÄT] Suche und vernichte Clipchamp..." -ForegroundColor Cyan
+Get-AppxPackage -AllUsers "*Clipchamp*" | ForEach-Object {
+    Write-Host "      GEFUNDEN: $($_.Name) - Wird entfernt." -ForegroundColor Red
+    $_ | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+}
+Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Clipchamp*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Out-Null
+# -------------------------------------------
+
+$KillPatterns = @("*Clipchamp*", "*PowerAutomate*", "*QuickAssist*", "*Microsoft.Bing*", "*BingWeather*", "*BingNews*")
+
+# Provisioning für andere Apps löschen
+foreach ($pattern in $KillPatterns) {
+    Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pattern } | ForEach-Object {
+        Write-Output "   -> Entferne Image-Paket: $($_.DisplayName)"
+        Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
+# Installierte Apps scannen (Microsoft Filter)
+$Apps = Get-AppxPackage -AllUsers | Where-Object { 
+    $_.Publisher -like "*Microsoft*" -and 
+    $_.NonRemovable -eq $false -and 
+    $_.SignatureKind -ne "System"
+}
+
+$Total = $Apps.Count
+$Count = 0
+
+foreach ($app in $Apps) {
+    $Count++
+    Write-Host -NoNewline "`r   -> Prüfe App [$Count / $Total]: $($app.Name)                          "
+    
+    $shouldKeep = $false
+    # 1. Whitelist Check (Wenn ja -> Behalten)
+    foreach ($pattern in ($Whitelist + $SystemCritical)) {
+        if ($app.Name -like "*$pattern*") { $shouldKeep = $true; break }
+    }
+    
+    # 2. KillList Check (Wenn ja -> Weg damit, überschreibt Whitelist)
+    foreach ($kill in $KillPatterns) {
+        if ($app.Name -like $kill) { $shouldKeep = $false }
+    }
+
+    # Löschen wenn nicht behalten
+    if (-not $shouldKeep) {
+        Write-Host "`n      [LÖSCHE] $($app.Name)..." -ForegroundColor Yellow
+        try { 
+            Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop 
+        } catch {
+            Write-Host "      [FEHLER] Konnte nicht löschen (evtl. System-App)." -ForegroundColor Red
+        }
+    }
+}
+Write-Host "`n"
+
+# ---------------------------------------------------------
+# 5. ASSISTENTEN
+# ---------------------------------------------------------
+Write-Output "--- [PHASE 4] Assistenten ---"
+$UpgradeTools = @("C:\Windows10Upgrade\Windows10UpgraderApp.exe", "C:\Windows11InstallationAssistant\Windows11InstallationAssistant.exe")
+foreach ($tool in $UpgradeTools) {
+    if (Test-Path $tool) { Start-Process -FilePath $tool -ArgumentList "/ForceUninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue }
+}
+$Folders = @("C:\Windows10Upgrade", "C:\Windows11InstallationAssistant", "C:\$WINDOWS.~BT")
+foreach ($f in $Folders) { if (Test-Path $f) { Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue } }
+
+Write-Output "FERTIG! Bitte Einstellungen schließen und neu prüfen."
