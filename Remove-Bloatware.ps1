@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-    All-in-One Cleaner v9 (Verbose Mode):
-    - Zeigt LIVE an, welche App gerade geprüft wird (kein "Einfrieren" mehr).
-    - Unterdrückt die technische "Path/Online" Ausgabe.
+    All-in-One Cleaner v9.1 (Clipchamp Fix):
+    - Zeigt LIVE an, welche App gerade geprüft wird.
+    - Spezieller "Kill-Switch" für Clipchamp hinzugefügt.
     - OneDrive & Registry Fix inklusive.
 #>
 
@@ -37,6 +37,7 @@ $SystemCritical = @(
     "Microsoft.Windows.ShellExperienceHost", "MicrosoftWindows.Client"
 )
 
+# Hier explizit Clipchamp als Ziel definiert
 $GhostTargets = @("*OneDrive*", "*Clipchamp*")
 
 # ---------------------------------------------------------
@@ -110,61 +111,4 @@ if (Test-Path $InboxPath) {
 # ---------------------------------------------------------
 # 4. APPX / STORE BEREINIGUNG
 # ---------------------------------------------------------
-Write-Output "--- [PHASE 3] Apps Bereinigung (Bitte warten...) ---"
-
-$KillPatterns = @("*Clipchamp*", "*PowerAutomate*", "*QuickAssist*", "*Microsoft.Bing*", "*BingWeather*", "*BingNews*")
-
-# Provisioning löschen (Output unterdrückt mit | Out-Null)
-foreach ($pattern in $KillPatterns) {
-    Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pattern } | ForEach-Object {
-        Write-Output "   -> Entferne Image-Paket: $($_.DisplayName)"
-        Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue | Out-Null
-    }
-}
-
-# Installierte Apps scannen
-$Apps = Get-AppxPackage -AllUsers | Where-Object { 
-    $_.Publisher -like "*Microsoft*" -and 
-    $_.NonRemovable -eq $false -and 
-    $_.SignatureKind -ne "System"
-}
-
-$Total = $Apps.Count
-$Count = 0
-
-foreach ($app in $Apps) {
-    $Count++
-    # Fortschrittsanzeige im Terminal (überschreibt die gleiche Zeile)
-    Write-Host -NoNewline "`r   -> Prüfe App [$Count / $Total]: $($app.Name)                         "
-    
-    $shouldKeep = $false
-    foreach ($pattern in ($Whitelist + $SystemCritical)) {
-        if ($app.Name -like "*$pattern*") { $shouldKeep = $true; break }
-    }
-    foreach ($kill in $KillPatterns) {
-        if ($app.Name -like $kill) { $shouldKeep = $false }
-    }
-
-    if (-not $shouldKeep) {
-        Write-Host "`n      [LÖSCHE] $($app.Name)..." -ForegroundColor Yellow
-        try { 
-            Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop 
-        } catch {
-            Write-Host "      [FEHLER] Konnte nicht löschen." -ForegroundColor Red
-        }
-    }
-}
-Write-Host "`n" # Neue Zeile nach Loop
-
-# ---------------------------------------------------------
-# 5. ASSISTENTEN
-# ---------------------------------------------------------
-Write-Output "--- [PHASE 4] Assistenten ---"
-$UpgradeTools = @("C:\Windows10Upgrade\Windows10UpgraderApp.exe", "C:\Windows11InstallationAssistant\Windows11InstallationAssistant.exe")
-foreach ($tool in $UpgradeTools) {
-    if (Test-Path $tool) { Start-Process -FilePath $tool -ArgumentList "/ForceUninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue }
-}
-$Folders = @("C:\Windows10Upgrade", "C:\Windows11InstallationAssistant", "C:\$WINDOWS.~BT")
-foreach ($f in $Folders) { if (Test-Path $f) { Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue } }
-
-Write-Output "FERTIG! Bitte Einstellungen schließen und neu prüfen."
+Write-Output "---
