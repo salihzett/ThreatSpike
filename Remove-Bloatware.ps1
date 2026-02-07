@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-    All-in-One Cleaner v9.1 (Clipchamp Fix):
-    - Zeigt LIVE an, welche App gerade geprüft wird.
-    - Spezieller "Kill-Switch" für Clipchamp hinzugefügt.
+    All-in-One Cleaner v9 (Verbose Mode):
+    - Zeigt LIVE an, welche App gerade geprüft wird (kein "Einfrieren" mehr).
+    - Unterdrückt die technische "Path/Online" Ausgabe.
     - OneDrive & Registry Fix inklusive.
 #>
 
@@ -37,7 +37,6 @@ $SystemCritical = @(
     "Microsoft.Windows.ShellExperienceHost", "MicrosoftWindows.Client"
 )
 
-# Hier explizit Clipchamp als Ziel definiert
 $GhostTargets = @("*OneDrive*", "*Clipchamp*")
 
 # ---------------------------------------------------------
@@ -113,18 +112,9 @@ if (Test-Path $InboxPath) {
 # ---------------------------------------------------------
 Write-Output "--- [PHASE 3] Apps Bereinigung (Bitte warten...) ---"
 
-# --- ZUSATZ: SPEZIALBEHANDLUNG CLIPCHAMP ---
-Write-Host "   -> [PRIORITÄT] Suche und vernichte Clipchamp..." -ForegroundColor Cyan
-Get-AppxPackage -AllUsers "*Clipchamp*" | ForEach-Object {
-    Write-Host "      GEFUNDEN: $($_.Name) - Wird entfernt." -ForegroundColor Red
-    $_ | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
-}
-Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Clipchamp*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Out-Null
-# -------------------------------------------
-
 $KillPatterns = @("*Clipchamp*", "*PowerAutomate*", "*QuickAssist*", "*Microsoft.Bing*", "*BingWeather*", "*BingNews*")
 
-# Provisioning für andere Apps löschen
+# Provisioning löschen (Output unterdrückt mit | Out-Null)
 foreach ($pattern in $KillPatterns) {
     Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pattern } | ForEach-Object {
         Write-Output "   -> Entferne Image-Paket: $($_.DisplayName)"
@@ -132,7 +122,7 @@ foreach ($pattern in $KillPatterns) {
     }
 }
 
-# Installierte Apps scannen (Microsoft Filter)
+# Installierte Apps scannen
 $Apps = Get-AppxPackage -AllUsers | Where-Object { 
     $_.Publisher -like "*Microsoft*" -and 
     $_.NonRemovable -eq $false -and 
@@ -144,30 +134,27 @@ $Count = 0
 
 foreach ($app in $Apps) {
     $Count++
-    Write-Host -NoNewline "`r   -> Prüfe App [$Count / $Total]: $($app.Name)                          "
+    # Fortschrittsanzeige im Terminal (überschreibt die gleiche Zeile)
+    Write-Host -NoNewline "`r   -> Prüfe App [$Count / $Total]: $($app.Name)                         "
     
     $shouldKeep = $false
-    # 1. Whitelist Check (Wenn ja -> Behalten)
     foreach ($pattern in ($Whitelist + $SystemCritical)) {
         if ($app.Name -like "*$pattern*") { $shouldKeep = $true; break }
     }
-    
-    # 2. KillList Check (Wenn ja -> Weg damit, überschreibt Whitelist)
     foreach ($kill in $KillPatterns) {
         if ($app.Name -like $kill) { $shouldKeep = $false }
     }
 
-    # Löschen wenn nicht behalten
     if (-not $shouldKeep) {
         Write-Host "`n      [LÖSCHE] $($app.Name)..." -ForegroundColor Yellow
         try { 
             Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop 
         } catch {
-            Write-Host "      [FEHLER] Konnte nicht löschen (evtl. System-App)." -ForegroundColor Red
+            Write-Host "      [FEHLER] Konnte nicht löschen." -ForegroundColor Red
         }
     }
 }
-Write-Host "`n"
+Write-Host "`n" # Neue Zeile nach Loop
 
 # ---------------------------------------------------------
 # 5. ASSISTENTEN
