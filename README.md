@@ -87,17 +87,16 @@ type "C:\Temp\rustdesk_config_update.log"
 type "C:\Users\username\AppData\Roaming\RustDesk\config\RustDesk2.toml"
 ```
 
-Download CLCL & Set Shortcut
+Download CLCL 
+```
+powershell -Command "Invoke-WebRequest -Uri 'https://nakka.com/soft/clcl/download/clcl213.zip' -OutFile 'C:\Temp\clcl213.zip'; Expand-Archive -Path 'C:\Temp\clcl213.zip' -DestinationPath 'C:\Program Files\CLCL' -Force"
+```
+
+Download CLCL & Set Shortcut in Public
 ```
 powershell -Command "Invoke-WebRequest -Uri 'https://nakka.com/soft/clcl/download/clcl213.zip' -OutFile 'C:\Temp\clcl213.zip'; Expand-Archive -Path 'C:\Temp\clcl213.zip' -DestinationPath 'C:\Program Files\CLCL' -Force"
 powershell -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('C:\Users\Public\Desktop\CLCL.lnk'); $Shortcut.TargetPath = 'C:\Program Files\CLCL\clcl.exe'; $Shortcut.Save()"
 ```
-
-Download CLCL, Set Shortcut and Check if older version exists
-```
-powershell -Command "if(Test-Path 'C:\Program Files\CLCL'){Remove-Item 'C:\Program Files\CLCL' -Recurse -Force}; Invoke-WebRequest -Uri 'https://nakka.com/soft/clcl/download/clcl213.zip' -OutFile 'C:\Temp\clcl213.zip'; Expand-Archive -Path 'C:\Temp\clcl213.zip' -DestinationPath 'C:\Program Files\CLCL' -Force; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('C:\Users\Public\Desktop\CLCL.lnk'); $Shortcut.TargetPath = 'C:\Program Files\CLCL\clcl.exe'; $Shortcut.Save()"```
-```
-
 
 Chocolatery Setup, if not working (ex. installs CLCL)
 ```
