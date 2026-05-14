@@ -180,13 +180,36 @@ try {
 } catch {}
 
 # ==========================================
-# 8. STARTMENÜ & SHORTCUTS
+# 8. STARTMENÜ & SHORTCUTS (KORRIGIERT & ERWEITERT)
 # ==========================================
 Write-Host "`n[8/9] Bereinige Startmenü & Desktop..." -ForegroundColor Yellow
-$lnkPaths = @("C:\ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs", "$env:PUBLIC\Desktop", "$env:USERPROFILE\Desktop")
-foreach ($p in $lnkPaths) {
-    if (Test-Path $p) { Get-ChildItem $p -Recurse -Include *.lnk | Where-Object { $_.Name -match "Word" -or $_.Name -match "Excel" -or $_.Name -match "Office" } | Remove-Item -Force }
+
+# Sammle alle möglichen Pfade (Public + alle lokalen User)
+$lnkPaths = @(
+    "C:\ProgramData\Microsoft\Windows\Start Menu\Programs", 
+    "$env:PUBLIC\Desktop"
+)
+Get-ChildItem "C:\Users" -Directory | ForEach-Object {
+    $lnkPaths += "$($_.FullName)\AppData\Roaming\Microsoft\Windows\Start Menu\Programs"
+    $lnkPaths += "$($_.FullName)\Desktop"
 }
+
+# Regex für alle Office-Programme
+$badIcons = "Word|Excel|Office|Publisher|PowerPoint|OneNote|Access|Skype|Outlook|OneDrive|Lync|Visio|Project"
+
+foreach ($p in $lnkPaths) {
+    if (Test-Path $p) { 
+        Get-ChildItem -Path $p -Recurse -Include *.lnk -ErrorAction SilentlyContinue | 
+        Where-Object { $_.Name -match $badIcons } | 
+        Remove-Item -Force -ErrorAction SilentlyContinue 
+    }
+}
+
+Write-Host "  -> Verknüpfungen gelöscht. Starte Windows UI neu..." -ForegroundColor DarkGray
+Stop-Process -Name StartMenuExperienceHost, SearchHost, explorer -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+Start-Process explorer
+Write-Host "  -> Startmenü bereinigt!" -ForegroundColor Green
 
 # ==========================================
 # 9. ABSCHLUSSPRÜFUNG (POWERSHELL STATT WMIC)
