@@ -1,18 +1,19 @@
 # CleanRuntimes.ps1
 Write-Host "Starting radical cleanup of all Microsoft Runtimes..." -ForegroundColor Yellow
 
-# These keywords cover all C++, J#, VSTO, and .NET Runtimes from the system
+# Broader keywords to catch EVERYTHING Visual Studio related, plus C++, J# and .NET
 $keywords = @(
     "*Visual C++*",
-    "*Visual Studio 2010*Tools*",
+    "*Visual Studio*",
     "*Visual J#*",
     "*Windows Desktop Runtime*"
 )
 
-# Search in both 64-bit and 32-bit registry hives
+# Search in 64-bit, 32-bit, AND Current User registry hives
 $registryPaths = @(
     "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
-    "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
 )
 
 # Fetch all installed applications
@@ -30,26 +31,30 @@ foreach ($app in $installedApps) {
     if ($match) {
         Write-Host "Removing: $($app.DisplayName)" -ForegroundColor Cyan
         
-        # Handle MSI packages (e.g., older 2005/2008 versions)
+        # Handle MSI packages (especially stubborn 2005/2008 versions)
         if ($app.UninstallString -match "msiexec") {
-            # Extract the GUID (PSChildName) and run silent uninstall
-            $arguments = "/x $($app.PSChildName) /qn /norestart"
+            # Extract the actual GUID from the UninstallString using Regex for accuracy
+            if ($app.UninstallString -match "\{[-a-zA-Z0-9]+\}") {
+                $guid = $matches[0]
+                $arguments = "/x $guid /qn /norestart"
+            } else {
+                $arguments = "/x $($app.PSChildName) /qn /norestart"
+            }
             Start-Process "msiexec.exe" -ArgumentList $arguments -Wait -NoNewWindow
         } 
-        # Handle EXE packages (e.g., newer 2015-2022 and .NET versions)
+        # Handle EXE packages (newer Runtimes and Installers)
         else {
             $uninstallCmd = ""
             if ($app.QuietUninstallString) {
-                # Use the official silent uninstall string if provided by the vendor
                 $uninstallCmd = $app.QuietUninstallString
             } elseif ($app.UninstallString) {
-                # Fallback: append standard silent flags to the regular uninstall string
-                $uninstallCmd = "$($app.UninstallString) /quiet /norestart /uninstall"
+                # Some uninstall strings have quotes, we strip them and build a clean command
+                $cleanString = $app.UninstallString -replace '"', ''
+                $uninstallCmd = "`"$cleanString`" /quiet /norestart /uninstall"
             }
             
             if ($uninstallCmd) {
-                # Run via cmd.exe to handle unquoted paths with spaces safely
-                Start-Process "cmd.exe" -ArgumentList "/c `"$uninstallCmd`"" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+                Start-Process "cmd.exe" -ArgumentList "/c $uninstallCmd" -Wait -NoNewWindow -ErrorAction SilentlyContinue
             }
         }
     }
