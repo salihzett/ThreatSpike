@@ -21,7 +21,8 @@ $Whitelist = @(
     "Microsoft.WindowsStore",
     "Microsoft.DesktopAppInstaller",
     "Microsoft.SecHealthUI",
-    "Microsoft.MicrosoftStickyNotes"
+    "Microsoft.MicrosoftStickyNotes",
+    "Microsoft.WindowsNotepad"
 )
 
 $SystemCritical = @(
